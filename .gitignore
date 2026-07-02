@@ -1,0 +1,12 @@
+# Pulumi (infra state / stack config — orchestration lives in its own repo)
+.pulumi/
+Pulumi.*.yaml
+
+# SonarQube / SonarCloud scanner work & cache (sonar-project.properties stays tracked)
+.scannerwork/
+.sonar/
+.sonarqube/
+.sonar_cache/
+
+# Claude Code local state & history (CLAUDE.md stays tracked)
+.claude/
