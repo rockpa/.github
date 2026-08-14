@@ -1,0 +1,129 @@
+# Reusable nightly documentation refresh -- the ONE source of truth for every
+# repo's nightly docs job. Each repo keeps only a thin caller
+# (.github/workflows/nightly-docs.yml) that sets the schedule and calls this with
+# `uses:` + `secrets: inherit`. Change the behaviour (model, prompt, guardrails)
+# HERE, once, and every repo picks it up on its next run.
+#
+# What it does: each night, Claude reads the CALLER repo's code + Markdown docs
+# and makes the smallest edits needed to bring the docs back in sync, then opens a
+# PR for human review. It never pushes to a default branch.
+#
+# Guardrails:
+#   * Gated on activity — skips entirely (no Claude run, no cost) when the caller
+#     repo had no commits in the last day.
+#   * Conservative prompt — smallest accurate edits (may add a concise new section
+#     when something is genuinely undocumented), plain-English, Markdown-only,
+#     no-op when the docs are already accurate.
+#   * Restricted tools — Read/Glob/Grep/Edit/Write only (no Bash, no network).
+#   * Output is a PR (auto-skips when the tree is unchanged).
+#
+# Auth: the ORG secret CLAUDE_CODE_OAUTH_TOKEN (a Claude subscription OAuth token
+# from `claude setup-token`), passed through by the caller's `secrets: inherit`.
+# Runs bill to the subscription, not per-call API usage.
+#
+# One-time org setup for this to be callable:
+#   * rockpa/.github → Settings → Actions → General → Access →
+#     "Accessible from repositories owned by rockpa".
+#   * The org secret CLAUDE_CODE_OAUTH_TOKEN with access to those repos.
+#   * Each repo: Settings → Actions → General → "Allow GitHub Actions to create
+#     and approve pull requests" (so the Open-PR step can run).
+
+name: Nightly Docs (reusable)
+
+on:
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: Claude subscription OAuth token (org secret; pass via `secrets: inherit`).
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write   # claude-code-action@v1 fetches an OIDC token at startup
+
+concurrency:
+  group: nightly-docs
+  cancel-in-progress: false
+
+jobs:
+  refresh-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          fetch-depth: 0   # full history so the activity gate can look back
+
+      - name: Gate — skip if no commits in the last day
+        id: gate
+        run: |
+          if [ -n "$(git log --since='25 hours ago' --pretty=%H)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No commits in the last 25h — skipping doc refresh."
+          fi
+
+      - name: Refresh docs with Claude
+        if: steps.gate.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: anthropics/claude-code-action@787c5a0ce96a9a6cfb050ea0c8f4c05f2447c251  # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: >-
+            --permission-mode acceptEdits
+            --allowedTools "Read,Glob,Grep,Edit,Write"
+            --max-turns 80
+            --model claude-sonnet-5
+          prompt: |
+            You are maintaining THIS repository's documentation. Bring the
+            Markdown docs into sync with the current code — conservatively.
+
+            Survey: use Glob/Grep to find the Markdown docs (README.md, docs/**,
+            any *.md) and read the code those docs describe.
+
+            For each doc, look holistically at what is now inaccurate or missing
+            versus the code — module/file names, function/class signatures,
+            config keys, CLI commands, env vars, architecture that changed.
+
+            Balance preserving existing structure, voice, and hand-written prose.
+            Do NOT rewrite wholesale, reformat unchanged sections, or reorder
+            just for the sake of it. Make the smallest edits that restore accuracy.
+
+            If, on the other hand, there is something genuinely new and/or
+            something undocumented and there is an opportunity to improve, add a
+            concise section to the most appropriate existing doc (or the README).
+            Don't create sprawling new files unless clearly warranted.
+
+            Documents should clearly explain the architecture and its impacts,
+            the code libraries and structures, and the variables and
+            dependencies. Where you change something, also check the overall
+            dependency documents for any changes they need too.
+
+            Edit MARKDOWN ONLY. Never touch code, secrets, lockfiles, config, or
+            generated artifacts.
+
+            If the docs are already accurate, make NO changes. Keep edits tight
+            and factual — the result is opened as a PR for human review.
+
+            Use plain English, not technical jargon, so the result is clearly
+            understandable to human and AI readers who are not already familiar
+            with the code base.
+
+      - name: Open PR if docs changed
+        if: steps.gate.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
+        with:
+          branch: auto-docs/nightly
+          title: "Nightly docs refresh"
+          commit-message: "docs: nightly refresh to match code"
+          body: |
+            Automated nightly documentation refresh by Claude.
+
+            Generated content — review carefully before merging. If the diff is
+            noisy or wrong, close this PR; the job will re-open a fresh one on
+            the next night with changes.
+          labels: |
+            documentation
+            automated
+          delete-branch: true
