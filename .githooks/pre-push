@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Pre-push test guard: run this repo's tests and block the push if any fail, so a
+# red suite never reaches CI. Safe in ANY repo -- it no-ops where there is no
+# suite. Turn it on once per clone:   git config core.hooksPath .githooks
+# Skip a single push (rarely needed): git push --no-verify
+set -uo pipefail
+
+abort() { echo; echo "pre-push: tests FAILED -- push aborted. Skip once with: git push --no-verify"; exit 1; }
+
+# Python tests: a tests/ directory, run with pytest.
+if [ -d tests ]; then
+  echo "pre-push: pytest tests/ ..."
+  python -m pytest tests/ -q
+  code=$?
+  if [ "$code" -eq 0 ]; then echo "pre-push: python tests passed."; exit 0; fi
+  # pytest exit 5 == "no tests collected" -> not a Python suite here; fall through.
+  [ "$code" -eq 5 ] || abort
+fi
+
+# JavaScript tests: a package.json with a "test" script.
+if [ -f package.json ] && grep -q '"test"[[:space:]]*:' package.json; then
+  echo "pre-push: npm test ..."
+  npm test --silent || abort
+  echo "pre-push: js tests passed."
+  exit 0
+fi
+
+echo "pre-push: no test suite detected -- nothing to check."
+exit 0
