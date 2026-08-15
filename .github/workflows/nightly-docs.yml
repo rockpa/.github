@@ -34,7 +34,7 @@ on:
   workflow_call:
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN:
-        description: Claude subscription OAuth token (org secret; pass via `secrets: inherit`).
+        description: "Claude subscription OAuth token (org secret; pass via `secrets: inherit`)."
         required: true
 
 permissions:
