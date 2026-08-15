@@ -78,7 +78,12 @@ jobs:
               >> "$out" 2>/dev/null || true
           fi
 
-          count=$(grep -c '^- ' "$out" 2>/dev/null || echo 0)
+          # Count the findings. `grep -c` prints 0 and exits non-zero when nothing
+          # matches, so allow that exit (|| true) and keep just its single "0"
+          # line -- adding our own would write a second line and break the step
+          # output. Fall back to 0 only if grep produced nothing at all.
+          count=$(grep -c '^- ' "$out" 2>/dev/null) || true
+          [ -n "$count" ] || count=0
           echo "count=$count" >> "$GITHUB_OUTPUT"
           echo "Found $count open finding(s):"
           cat "$out" || true
