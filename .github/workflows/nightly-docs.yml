@@ -83,7 +83,7 @@ jobs:
           claude_args: >-
             --permission-mode acceptEdits
             --allowedTools "Read,Glob,Grep,Edit,Write"
-            --max-turns 150
+            --max-turns 500
             --model claude-sonnet-5
           prompt: |
             You are maintaining THIS repository's documentation. Bring the
