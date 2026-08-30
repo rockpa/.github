@@ -78,7 +78,7 @@ for name in "${REPOS[@]}"; do
   if [ -n "${SONAR_TOKEN:-}" ]; then
     key="$(sonar_key "$name")"
     sn="$(curl -s -u "$SONAR_TOKEN:" \
-          "https://sonarcloud.io/api/issues/search?componentKeys=$key&resolved=false&ps=100" \
+          "https://sonarcloud.io/api/issues/search?componentKeys=$key&organization=$ORG&resolved=false&ps=100" \
           | python -c 'import sys,json
 try:
     d=json.load(sys.stdin)
