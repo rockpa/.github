@@ -1,10 +1,10 @@
-# Reusable nightly documentation refresh -- the ONE source of truth for every
-# repo's nightly docs job. Each repo keeps only a thin caller
+# Reusable weekly documentation refresh -- the ONE source of truth for every
+# repo's weekly docs job. Each repo keeps only a thin caller
 # (.github/workflows/nightly-docs.yml) that sets the schedule and calls this with
 # `uses:` + `secrets: inherit`. Change the behaviour (model, prompt, guardrails)
 # HERE, once, and every repo picks it up on its next run.
 #
-# What it does: each night, Claude reads the CALLER repo's code + Markdown docs
+# What it does: each week, Claude reads the CALLER repo's code + Markdown docs
 # and makes the smallest edits needed to bring the docs back in sync, then opens a
 # PR for human review. It never pushes to a default branch.
 #
@@ -28,7 +28,7 @@
 #   * Each repo: Settings → Actions → General → "Allow GitHub Actions to create
 #     and approve pull requests" (so the Open-PR step can run).
 
-name: Nightly Docs (reusable)
+name: Weekly Docs (reusable)
 
 on:
   workflow_call:
@@ -37,11 +37,6 @@ on:
         description: "Claude subscription OAuth token (org secret; pass via `secrets: inherit`)."
         required: true
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write   # claude-code-action@v1 fetches an OIDC token at startup
-
 concurrency:
   group: nightly-docs
   cancel-in-progress: false
@@ -49,11 +44,18 @@ concurrency:
 jobs:
   refresh-docs:
     runs-on: ubuntu-latest
+    # Least privilege at the JOB level: the docs job commits, opens the PR, and
+    # uses OIDC — nothing else needs these scopes.
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write   # claude-code-action@v1 fetches an OIDC token at startup
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
         with:
           fetch-depth: 0   # full history so the activity gate can look back
+          persist-credentials: false   # create-pull-request pushes via github.token; don't leave creds in .git/config (Aikido SAST)
 
       - name: Gate + list the last 48h of changes
         id: gate
@@ -132,15 +134,15 @@ jobs:
         if: steps.gate.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
         uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
         with:
-          branch: auto-docs/nightly
-          title: "Nightly docs refresh"
-          commit-message: "docs: nightly refresh to match code"
+          branch: auto-docs/weekly
+          title: "Weekly docs refresh"
+          commit-message: "docs: weekly refresh to match code"
           body: |
-            Automated nightly documentation refresh by Claude.
+            Automated weekly documentation refresh by Claude.
 
             Generated content — review carefully before merging. If the diff is
             noisy or wrong, close this PR; the job will re-open a fresh one on
-            the next night with changes.
+            the next run with changes.
           labels: |
             documentation
             automated

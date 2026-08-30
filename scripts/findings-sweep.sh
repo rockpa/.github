@@ -1,27 +1,32 @@
 #!/usr/bin/env bash
 # =============================================================================
-# findings-sweep.sh -- one-shot, cross-repo Sonar + CodeQL findings report.
+# findings-sweep.sh -- one-shot, cross-repo Sonar + CodeQL + Aikido findings report.
 #
 # The "on-demand local sweep": run this (or ask Claude Code to) to see every
-# open code-scanning (CodeQL) alert and SonarCloud issue across ALL the org's
-# repos in one pass, so findings can be triaged / fixed without waiting on an
-# in-CI bot. Replaces the retired autonomous resolve-findings auto-PR.
+# open code-scanning (CodeQL) alert, SonarCloud issue, and Aikido security
+# finding across ALL the org's repos in one pass, so findings can be triaged /
+# fixed without waiting on an in-CI bot.
 #
 # Self-updating + clone-free: the repo list is pulled live from the org and the
 # Sonar project key is read from each repo's sonar-project.properties ON GITHUB,
-# so a brand-new repo is covered automatically with NO edit here (closes the
-# goal-3 gap the old hard-coded list had).
+# so a brand-new repo is covered automatically with NO edit here.
 #
-# Auth:
+# Auth (each source is optional; omit its creds and that source is skipped):
 #   * CodeQL / GitHub  -> uses your `gh` login (gh auth status). No token here.
-#   * SonarCloud       -> set SONAR_TOKEN in your env to include Sonar issues;
-#                         omit it and the sweep reports CodeQL only.
-#                         (A SonarCloud "User Token": My Account -> Security.)
+#   * SonarCloud       -> set SONAR_TOKEN in your env (My Account -> Security).
+#   * Aikido           -> set AIKIDO_CLIENT_ID + AIKIDO_CLIENT_SECRET (a
+#                         workspace-admin API credential with basics:read +
+#                         issues:read, from Aikido -> Integrations). Pulled once
+#                         for the whole org and filtered per repo below.
+#
+# SECRETS NOTE: Aikido `leaked_secret` findings are reported as a COUNT ONLY --
+# their file locations are NOT printed here (rotate them from the Aikido
+# dashboard). This keeps the sweep safe to run and off the secrets boundary.
 #
 # Usage:
 #   ./findings-sweep.sh                    # every non-archived repo in the org
-#   ./findings-sweep.sh internal-apps-azure-functions-api datagate   # a subset
-#   SONAR_TOKEN=xxxx ./findings-sweep.sh   # include Sonar issues
+#   ./findings-sweep.sh datagate           # a subset
+#   SONAR_TOKEN=xxxx AIKIDO_CLIENT_ID=… AIKIDO_CLIENT_SECRET=… ./findings-sweep.sh
 # =============================================================================
 set -uo pipefail
 
@@ -47,13 +52,55 @@ sonar_key() {
   printf '%s' "${key:-${ORG}_${name}}"
 }
 
+# ---- Aikido prefetch: one org-wide pull of open issues, filtered per repo ----
+# Aikido's API is org-scoped (not per-repo like the others), so we authenticate
+# once (OAuth2 client-credentials) and dump all open issues to a temp file that
+# the per-repo loop filters by code_repo_name.
+AIK_ON=""
+AIK_JSON=""
+if [ -n "${AIKIDO_CLIENT_ID:-}" ] && [ -n "${AIKIDO_CLIENT_SECRET:-}" ]; then
+  AIK_BASE="https://app.aikido.dev"   # this workspace's API host (not app.us.*)
+  AIK_TOKEN="$(curl -s -u "$AIKIDO_CLIENT_ID:$AIKIDO_CLIENT_SECRET" \
+                 -d grant_type=client_credentials "$AIK_BASE/api/oauth/token" \
+               | python -c 'import sys,json
+try: print(json.load(sys.stdin).get("access_token","") or "")
+except Exception: print("")')"
+  if [ -n "$AIK_TOKEN" ]; then
+    AIK_JSON="$(mktemp)"
+    python - "$AIK_BASE" "$AIK_TOKEN" "$AIK_JSON" <<'PY'
+import sys, json, urllib.request
+base, token, out = sys.argv[1], sys.argv[2], sys.argv[3]
+allx = []
+for page in range(0, 40):
+    url = f"{base}/api/public/v1/issues/export?format=json&filter_status=open&per_page=100&page={page}"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
+    try:
+        chunk = json.loads(urllib.request.urlopen(req, timeout=30).read())
+    except Exception:
+        break
+    if not isinstance(chunk, list) or not chunk:
+        break
+    allx += chunk
+    if len(chunk) < 100:
+        break
+json.dump(allx, open(out, "w"))
+PY
+    AIK_ON="yes"
+  else
+    echo "WARN: Aikido creds set but token exchange failed; skipping Aikido." >&2
+  fi
+fi
+# Clean up the prefetch temp file however the script exits.
+trap '[ -n "${AIK_JSON:-}" ] && rm -f "$AIK_JSON"' EXIT
+
 echo "=================================================================="
 echo " Findings sweep -- org $ORG -- $(date -u '+%Y-%m-%d %H:%M UTC')"
-echo " Repos: ${#REPOS[@]}    Sonar: $([ -n "${SONAR_TOKEN:-}" ] && echo 'ON' || echo 'OFF (set SONAR_TOKEN to include)')"
+echo " Repos: ${#REPOS[@]}    Sonar: $([ -n "${SONAR_TOKEN:-}" ] && echo 'ON' || echo 'OFF')    Aikido: $([ -n "$AIK_ON" ] && echo 'ON' || echo 'OFF')"
 echo "=================================================================="
 
 TOTAL_CQ=0
 TOTAL_SN=0
+TOTAL_AIK=0
 
 for name in "${REPOS[@]}"; do
   slug="$ORG/$name"
@@ -94,9 +141,39 @@ for i in d.get("issues",[]):
       printf '%s\n' "$sn"
     fi
   fi
+
+  # ---- Aikido (open issues for this repo, from the org-wide prefetch) --------
+  # First output line is the finding COUNT (incl. secrets); the rest is detail.
+  # leaked_secret is collapsed to a single count line -- locations stay in the
+  # dashboard (secrets boundary), everything else prints file:line + rule.
+  if [ -n "$AIK_ON" ]; then
+    ak="$(python - "$AIK_JSON" "$name" <<'PY'
+import sys, json
+data = json.load(open(sys.argv[1])); repo = sys.argv[2]
+rows = [i for i in data if i.get("code_repo_name") == repo]
+secrets = [i for i in rows if i.get("type") == "leaked_secret"]
+other = [i for i in rows if i.get("type") != "leaked_secret"]
+print(len(rows))  # line 1 = count
+for i in sorted(other, key=lambda x: -(x.get("severity_score") or 0)):
+    loc = f'{i.get("affected_file") or i.get("domain_name") or ""}:{i.get("start_line") or ""}'.rstrip(":")
+    print(f'  [{i.get("severity")}] {i.get("type")}  {loc}  {i.get("rule") or ""}')
+if secrets:
+    print(f'  [{len(secrets)}] leaked_secret  (rotate from the Aikido dashboard -- locations not listed here)')
+PY
+)"
+    n="$(printf '%s\n' "$ak" | head -1)"
+    detail="$(printf '%s\n' "$ak" | tail -n +2)"
+    if [ "${n:-0}" = "0" ] || [ -z "${n:-}" ]; then
+      echo "  Aikido: none open"
+    else
+      TOTAL_AIK=$((TOTAL_AIK + n))
+      echo "  Aikido: $n open"
+      printf '%s\n' "$detail"
+    fi
+  fi
 done
 
 echo
 echo "=================================================================="
-echo " TOTAL open: CodeQL=$TOTAL_CQ  Sonar=$TOTAL_SN"
+echo " TOTAL open: CodeQL=$TOTAL_CQ  Sonar=$TOTAL_SN  Aikido=$TOTAL_AIK"
 echo "=================================================================="
