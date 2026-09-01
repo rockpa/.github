@@ -124,21 +124,37 @@ for name in "${REPOS[@]}"; do
   # ---- SonarCloud (open issues) ---------------------------------------------
   if [ -n "${SONAR_TOKEN:-}" ]; then
     key="$(sonar_key "$name")"
-    sn="$(curl -s -u "$SONAR_TOKEN:" \
-          "https://sonarcloud.io/api/issues/search?componentKeys=$key&organization=$ORG&resolved=false&ps=100" \
-          | python -c 'import sys,json
+    # Bearer auth: SonarCloud user tokens authenticate via `Authorization: Bearer`.
+    # Basic auth (`-u token:`) is NOT accepted for these tokens and returns 401.
+    # We capture the HTTP status ALONGSIDE the body (a trailing line appended by
+    # curl -w) so an auth/other failure is reported as an explicit ERROR and is
+    # never silently misread as "none open" -- the old code swallowed a 401 and
+    # printed a clean result, hiding real findings.
+    resp="$(curl -s -w $'\n%{http_code}' -H "Authorization: Bearer $SONAR_TOKEN" \
+          "https://sonarcloud.io/api/issues/search?componentKeys=$key&organization=$ORG&resolved=false&ps=100")"
+    code="${resp##*$'\n'}"      # last line = HTTP status
+    body="${resp%$'\n'*}"       # everything before it = JSON body
+    if [ "$code" != "200" ]; then
+      if [ "$code" = "401" ] || [ "$code" = "403" ]; then
+        echo "  Sonar:  AUTH FAILED (HTTP $code) for $key -- SONAR_TOKEN rejected (expired, not a User token, or lacks Browse permission). NOT a clean result."
+      else
+        echo "  Sonar:  ERROR (HTTP ${code:-none}) querying $key -- NOT a clean result."
+      fi
+    else
+      sn="$(printf '%s' "$body" | python -c 'import sys,json
 try:
     d=json.load(sys.stdin)
 except Exception:
     sys.exit(0)
 for i in d.get("issues",[]):
     print("  [%s] %s  %s:%s" % (i.get("severity"), i.get("rule"), i.get("component","").split(":")[-1], i.get("line","")))' 2>/dev/null)"
-    if [ -z "$sn" ]; then
-      echo "  Sonar:  none open / no project ($key)"
-    else
-      n="$(printf '%s\n' "$sn" | grep -c .)"; TOTAL_SN=$((TOTAL_SN + n))
-      echo "  Sonar:  $n open (project $key)"
-      printf '%s\n' "$sn"
+      if [ -z "$sn" ]; then
+        echo "  Sonar:  none open ($key)"
+      else
+        n="$(printf '%s\n' "$sn" | grep -c .)"; TOTAL_SN=$((TOTAL_SN + n))
+        echo "  Sonar:  $n open (project $key)"
+        printf '%s\n' "$sn"
+      fi
     fi
   fi
 
