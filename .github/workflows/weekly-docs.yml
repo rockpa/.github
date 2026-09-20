@@ -1,6 +1,6 @@
 # Reusable weekly documentation refresh -- the ONE source of truth for every
 # repo's weekly docs job. Each repo keeps only a thin caller
-# (.github/workflows/nightly-docs.yml) that sets the schedule and calls this with
+# (.github/workflows/weekly-docs.yml) that sets the schedule and calls this with
 # `uses:` + `secrets: inherit`. Change the behaviour (model, prompt, guardrails)
 # HERE, once, and every repo picks it up on its next run.
 #
@@ -38,7 +38,7 @@ on:
         required: true
 
 concurrency:
-  group: nightly-docs
+  group: weekly-docs
   cancel-in-progress: false
 
 jobs:

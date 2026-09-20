@@ -1,0 +1,44 @@
+# actionlint — validate every GitHub Actions workflow on each pull request.
+#
+# THE GUARDRAIL. It stops a malformed workflow from ever merging: a duplicate
+# `uses:` in a step, a tab, a step that mixes `uses:` and `run:`, a bad `${{ }}`
+# expression, an unknown key. That class of breakage used to ship silently and
+# only surface at run time as GitHub's "Invalid workflow file" — this check turns
+# it into a red PR instead. It is wired as a REQUIRED status check on `main`.
+#
+# Runs on EVERY pull request with NO `paths:` filter ON PURPOSE. A required check
+# that only ran when `.github/workflows/**` changed would never report on other
+# PRs, and a required-but-absent check blocks the PR forever. Linting the whole
+# workflow directory takes a few seconds, so running it every time is cheap.
+#
+# actionlint is installed with `go install` pinned to an exact tag: no `curl | bash`,
+# and no third-party action whose inputs could change under us. Bump the version
+# in one place here (and in the canonical copy — see below) when you want a newer
+# actionlint; a bump is a normal reviewed PR, never a silent change.
+#
+# CANONICAL COPY: rockpa/.github/.github/workflows/actionlint.yml (this file) is the
+# fleet source of truth, also published as a workflow-template. Every repo carries
+# its OWN copy so the gate has no cross-repo single point of failure. Keep the job
+# id `actionlint` in every copy so the required-check context is identical fleet-wide.
+name: actionlint
+
+on:
+  pull_request:
+
+# Read-only: the job only checks out the tree to lint the workflow files.
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Run actionlint
+        # Go is preinstalled on ubuntu-latest; `go install <tag>` compiles the
+        # pinned actionlint release. A non-zero exit (any lint error) fails the job,
+        # which fails the required check and blocks the merge.
+        run: |
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint" -color

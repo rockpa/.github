@@ -1,0 +1,6 @@
+{
+  "name": "actionlint workflow gate",
+  "description": "Validate all GitHub Actions workflows on every pull request. Wire as a required status check on main.",
+  "iconName": "octicon-checklist",
+  "categories": ["Continuous integration"]
+}
