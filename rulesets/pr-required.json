@@ -20,6 +20,6 @@
     { "type": "non_fast_forward" }
   ],
   "bypass_actors": [
-    { "actor_id": 999999, "actor_type": "Team", "bypass_mode": "pull_request" }
+    { "actor_id": 1, "actor_type": "OrganizationAdmin", "bypass_mode": "pull_request" }
   ]
 }
