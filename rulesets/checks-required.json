@@ -4,9 +4,9 @@
   "enforcement": "active",
   "conditions": {
     "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] },
-    "repository_name": {
-      "include": ["~ALL"],
-      "exclude": ["azure-pulumi-orchestration-*", "rpa-database-reference", "teams-app-manifests"]
+    "repository_property": {
+      "include": [{ "name": "tier", "source": "custom", "property_values": ["code"] }],
+      "exclude": []
     }
   },
   "rules": [
@@ -14,9 +14,7 @@
       "type": "required_status_checks",
       "parameters": {
         "strict_required_status_checks_policy": false,
-        "required_status_checks": [
-          { "context": "CI" }
-        ]
+        "required_status_checks": [{ "context": "CI" }]
       }
     }
   ],

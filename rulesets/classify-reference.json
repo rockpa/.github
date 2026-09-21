@@ -1,0 +1,4 @@
+{
+  "repository_names": ["administrative", "rpa-database-reference", "teams-app-manifests"],
+  "properties": [{ "property_name": "tier", "value": "reference" }]
+}

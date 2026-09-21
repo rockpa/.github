@@ -4,7 +4,10 @@
   "enforcement": "active",
   "conditions": {
     "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] },
-    "repository_name": { "include": ["~ALL"], "exclude": ["azure-pulumi-orchestration-*"] }
+    "repository_property": {
+      "include": [{ "name": "tier", "source": "custom", "property_values": ["code"] }],
+      "exclude": []
+    }
   },
   "rules": [
     {
@@ -14,7 +17,8 @@
         "dismiss_stale_reviews_on_push": false,
         "require_code_owner_review": false,
         "require_last_push_approval": false,
-        "required_review_thread_resolution": false
+        "required_review_thread_resolution": false,
+        "require_extra_approval_for_unattributed_changes": false
       }
     },
     { "type": "non_fast_forward" }

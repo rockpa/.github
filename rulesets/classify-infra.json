@@ -1,0 +1,4 @@
+{
+  "repository_names": ["azure-pulumi-orchestration-external-app-systems", "azure-pulumi-orchestration-data-systems", "azure-pulumi-orchestration-ai-systems", ".github"],
+  "properties": [{ "property_name": "tier", "value": "infrastructure" }]
+}
