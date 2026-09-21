@@ -11,10 +11,13 @@
 # PRs, and a required-but-absent check blocks the PR forever. Linting the whole
 # workflow directory takes a few seconds, so running it every time is cheap.
 #
-# actionlint is installed with `go install` pinned to an exact tag: no `curl | bash`,
-# and no third-party action whose inputs could change under us. Bump the version
-# in one place here (and in the canonical copy — see below) when you want a newer
-# actionlint; a bump is a normal reviewed PR, never a silent change.
+# actionlint is installed as a PINNED, CHECKSUM-VERIFIED prebuilt binary: we download
+# the exact release tarball and refuse to run unless its sha256 matches the hash
+# pinned below. No `curl | bash` of a script from a moving branch, no `go install`
+# (which would depend on the Go module proxy at merge time and isn't Dependabot-
+# tracked), and no third-party action. To bump: change ACTIONLINT_VERSION and
+# ACTIONLINT_SHA256 together (the sha256 is in the release's checksums.txt) — a
+# normal reviewed PR, never a silent change.
 #
 # CANONICAL COPY: rockpa/.github/.github/workflows/actionlint.yml (this file) is the
 # fleet source of truth, also published as a workflow-template. Every repo carries
@@ -36,9 +39,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Run actionlint
-        # Go is preinstalled on ubuntu-latest; `go install <tag>` compiles the
-        # pinned actionlint release. A non-zero exit (any lint error) fails the job,
-        # which fails the required check and blocks the merge.
+        # Download the pinned release tarball, verify its sha256 (sha256sum -c fails
+        # the step on any mismatch — supply-chain guard), extract, and run. A non-zero
+        # actionlint exit (any lint error) fails the job, which fails the required
+        # check and blocks the merge.
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
         run: |
-          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-          "$(go env GOPATH)/bin/actionlint" -color
+          set -euo pipefail
+          curl -sSLf --retry 3 --retry-delay 2 --retry-all-errors -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar -xzf actionlint.tar.gz actionlint
+          ./actionlint -color

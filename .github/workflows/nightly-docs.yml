@@ -1,0 +1,28 @@
+# COMPATIBILITY SHIM — no logic here; the real reusable is weekly-docs.yml.
+#
+# This reusable workflow was renamed nightly-docs.yml -> weekly-docs.yml. Callers that
+# still pin the OLD path `rockpa/.github/.github/workflows/nightly-docs.yml@<sha>` — e.g.
+# the azure-pulumi infra repos, which this fleet cannot edit — would 404 if their pin
+# were ever bumped forward to a commit lacking this file. Keeping this thin shim on the
+# default branch means the old path resolves at every future SHA: it simply calls
+# weekly-docs.yml with the same secret. Never renaming/deleting a published reusable
+# file (only shimming it) is the fleet rule; this is the shim.
+name: Weekly Docs (compat shim -> weekly-docs.yml)
+
+on:
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        description: "Claude subscription OAuth token (org secret; pass via `secrets: inherit`)."
+        required: true
+
+jobs:
+  docs:
+    # Grant the scopes the called workflow's job needs; `secrets: inherit` forwards the
+    # org token through this shim to weekly-docs.yml.
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    uses: ./.github/workflows/weekly-docs.yml
+    secrets: inherit

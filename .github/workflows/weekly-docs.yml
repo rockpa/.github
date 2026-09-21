@@ -10,7 +10,7 @@
 #
 # Guardrails:
 #   * Gated on activity — skips entirely (no Claude run, no cost) when the caller
-#     repo had no commits in the last day.
+#     repo had no commits in the last week.
 #   * Conservative prompt — smallest accurate edits (may add a concise new section
 #     when something is genuinely undocumented), plain-English, Markdown-only,
 #     no-op when the docs are already accurate.
@@ -57,25 +57,25 @@ jobs:
           fetch-depth: 0   # full history so the activity gate can look back
           persist-credentials: false   # create-pull-request pushes via github.token; don't leave creds in .git/config (Aikido SAST)
 
-      - name: Gate + list the last 48h of changes
+      - name: Gate + list the last week of changes
         id: gate
         run: |
           # Activity gate: skip entirely (no Claude run, no cost) if nothing
-          # changed in the last day.
-          if [ -z "$(git log --since='25 hours ago' --pretty=%H)" ]; then
+          # changed in the last week.
+          if [ -z "$(git log --since='8 days ago' --pretty=%H)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No commits in the last 25h — skipping doc refresh."
+            echo "No commits in the last week — skipping doc refresh."
             exit 0
           fi
           echo "changed=true" >> "$GITHUB_OUTPUT"
-          # The files changed in the last 48h -- the scope the doc refresh focuses
+          # The files changed in the last week -- the scope the doc refresh focuses
           # on. Written to the runner temp dir (NEVER the repo) so it can't leak
           # into the PR. The agent reads this list to know what changed, since its
           # tool set has no Bash to run git itself.
-          git log --since='48 hours ago' --name-only --pretty=format: \
-            | sed '/^$/d' | sort -u > "${RUNNER_TEMP}/changed-48h.txt"
-          echo "Files changed in the last 48h:"
-          cat "${RUNNER_TEMP}/changed-48h.txt"
+          git log --since='8 days ago' --name-only --pretty=format: \
+            | sed '/^$/d' | sort -u > "${RUNNER_TEMP}/changed-1w.txt"
+          echo "Files changed in the last week:"
+          cat "${RUNNER_TEMP}/changed-1w.txt"
 
       - name: Refresh docs with Claude
         if: steps.gate.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
@@ -92,10 +92,10 @@ jobs:
             Markdown docs into sync with the current code — conservatively.
 
             Scope — focus on RECENT change, not the whole repo. The files changed
-            in the last 48 hours are listed in ${{ runner.temp }}/changed-48h.txt;
+            in the last week are listed in ${{ runner.temp }}/changed-1w.txt;
             Read that file first. Update the Markdown docs that describe those
             changed files. You MAY also update an OLDER doc (one not itself changed
-            in the last 48h) WHEN the recent changes implicate it — e.g. if a core
+            in the last week) WHEN the recent changes implicate it — e.g. if a core
             architectural component changed, fix the architecture/overview/
             dependency docs that describe it, however old they are. Do NOT attempt
             a full-repo doc resync; stay on what changed and what it implicates.
