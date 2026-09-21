@@ -33,7 +33,13 @@ Four capabilities, the same in every repo, enforced where it matters:
 - **Pin every action to a full commit SHA with a `# vX.Y.Z` comment; Dependabot bumps
   them.** Never pin a moving tag (`@v1`) — a floating tag is mutable and is a
   supply-chain downgrade from a SHA. GitHub is explicit that a SHA is the only immutable
-  pin. This applies to the shared reusable too.
+  pin. This applies to the shared `weekly-docs` reusable too: its callers pin an
+  **immutable SHA**, never `@main`. (A `@main` pin was tried and rejected — that job has
+  `id-token: write` (OIDC), `contents`/`pull-requests: write`, and the org token, so a
+  mutable ref turns any push to `rockpa/.github` into RCE in a privileged context; both
+  Aikido and the harness flagged it.) To avoid hand-bumping the pin on every reusable
+  change, **cut release tags on `rockpa/.github`** — Dependabot then bumps the caller pins
+  automatically (it can't today only because that repo has no releases yet).
 - **Never rename or delete a published shared workflow file.** The path is part of the
   reference (`owner/repo/path@ref`), so a rename breaks every caller and no pin protects
   against it. If a rename is ever unavoidable, add the new file, leave the old one in
