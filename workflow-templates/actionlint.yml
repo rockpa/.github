@@ -38,6 +38,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Lint-only job -- never leave the repo token in .git/config
+          # (checkout persists credentials by default; Aikido flags it).
+          persist-credentials: false
       - name: Run actionlint
         # Download the pinned release tarball, verify its sha256 (sha256sum -c fails
         # the step on any mismatch — supply-chain guard), extract, and run. A non-zero
